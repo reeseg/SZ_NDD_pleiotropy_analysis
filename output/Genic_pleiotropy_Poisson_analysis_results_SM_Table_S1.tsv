@@ -1,0 +1,5 @@
+N_Genes	Predictors	beta	Std_Err	P	SZ_DNV_enrich
+13015	DD_PTV_P	0.15	0.023	3.3e-11	SZ PTVs
+13015	DD_miss_P	-0.018	0.041	0.67	SZ PTVs
+13015	DD_PTV_P	0.012	0.014	0.38	SZ missense
+13015	DD_miss_P	0.049	0.017	0.0047	SZ missense

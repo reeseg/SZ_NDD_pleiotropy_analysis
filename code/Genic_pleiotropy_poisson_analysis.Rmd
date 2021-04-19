@@ -1,0 +1,164 @@
+---
+title: "R Notebook for genic pleiotropy Poisson analysis"
+---
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+```{r}
+## Read in DD stats (taken from Kaplanis et al 2020) and schizophrenia DNV enrichment stats
+
+gene_stats <- read.table("./../data/Gene_enrichment_stats_for_pois_regression.tsv",
+                         header=T,
+                         sep = "\t",
+                         stringsAsFactors = F)
+
+```
+
+```{r}
+## Read in brain expression data taken from brainseq project (https://github.com/LieberInstitute/BrainSeq_Phase1)
+
+DLPF <- read.table("./../data/brainseq_phase1_log2meanExprs_DLPFC_gene_entrez.txt",
+                   header=T,
+                   sep = "\t")
+
+## Read in contraint scores taken from gnomAD
+
+pLi <- read.table("./../data/gnomad.v2.1.1.lof_metrics.by_gene_HGNC.tsv",header=T,sep = "\t",stringsAsFactors = F,na.strings = c(NA,".")) 
+pLi <- pLi[!duplicated(pLi$HGNC_ID),]
+
+## append brain expression to genes
+gene_stats <- merge(gene_stats,
+                    DLPF,
+                    by.x = "Entrez",
+                    by.y = "entrezgene_id",
+                    all.x = T)
+
+## append constraint scores to genes
+gene_stats <- merge(gene_stats,
+                    pLi[c("HGNC_ID","pLI","oe_lof","oe_lof_upper","oe_mis","oe_mis_upper","syn_z")],
+                    by.x = "HGNC_ID",
+                    by.y = "HGNC_ID",
+                    all.x = T)
+
+
+## Set genes with an NDD PTV P value of zero to the lowest observed non-zero ptv p value. 
+gene_stats$PTV_enrichment_p_adj <- ifelse(gene_stats$PTV_enrichment_p == 0
+                                          ,0.0000000000000001,
+                                          gene_stats$PTV_enrichment_p)
+
+## -log and normalise DD P values
+gene_stats <- gene_stats %>%
+  mutate(DD_ptv_P_sd = scale(-log(PTV_enrichment_p_adj))) %>%
+  mutate(DD_miss_P_sd = scale(-log(enrich_mis_p_full)))
+
+
+```
+
+```{r}
+## Poisson regression function
+run_poisson_regressions <- function(obs_in, exp_in, DD_PTV_P, DD_miss_P) {
+  
+  temp_result <- data.frame(obs = obs_in,
+                          exp = exp_in,
+                          DD_PTV_P = DD_PTV_P,
+                          DD_miss_P = DD_miss_P)
+  
+  poiss_model <- summary(glm(data = temp_result, 
+                     obs ~ DD_PTV_P + DD_miss_P,
+                     offset = log(temp_result[["exp"]]), 
+                     poisson))
+  
+  results_table_out <- data.frame(
+    N_Genes = poiss_model$df.null +1,
+    Predictors = row.names(poiss_model$coefficients)[2:3],
+    beta = signif(poiss_model$coefficients[2:3, "Estimate"],2),
+    Std_Err = signif(poiss_model$coefficients[2:3, "Std. Error"],2),
+    P = signif(poiss_model$coefficients[2:3, "Pr(>|z|)"],2)
+  )
+  
+  return(list(results_table = results_table_out,
+              pois_model = poiss_model))
+}
+
+## Poisson regression function with added covariates
+run_poisson_regressions_covar <- function(obs_in, exp_in, DD_PTV_P, DD_miss_P, brain_in, constraint_in) {
+  
+  temp_result <- data.frame(obs = obs_in,
+                            exp = exp_in,
+                            DD_PTV_P = DD_PTV_P,
+                            DD_miss_P = DD_miss_P,
+                            brain_in = brain_in,
+                            constraint_in = constraint_in)
+  
+  poiss_model <- summary(glm(data = temp_result, 
+                     obs ~ DD_PTV_P + DD_miss_P + brain_in + constraint_in,
+                     offset = log(temp_result[["exp"]]), 
+                     poisson))
+  
+  results_table_out <- data.frame(
+    N_Genes = poiss_model$df.null +1,
+    Predictors = row.names(poiss_model$coefficients)[2:5],
+    beta = signif(poiss_model$coefficients[2:5, "Estimate"],2),
+    Std_Err = signif(poiss_model$coefficients[2:5, "Std. Error"],2),
+    P = signif(poiss_model$coefficients[2:5, "Pr(>|z|)"],2)
+  )
+  
+  return(list(results_table = results_table_out,
+              pois_model = poiss_model))
+}
+```
+
+
+```{r}
+## Poisson regression (Table S1)
+SZ_PTV_enrichment <- run_poisson_regressions(obs_in = gene_stats$SZ_PTV_obs,
+                                             exp_in = gene_stats$SZ_PTV_exp,
+                                             DD_PTV_P = gene_stats$DD_ptv_P_sd,
+                                             DD_miss_P = gene_stats$DD_miss_P_sd)
+
+SZ_miss_enrichment <- run_poisson_regressions(obs_in = gene_stats$SZ_miss_obs,
+                                              exp_in = gene_stats$SZ_miss_exp,
+                                              DD_PTV_P = gene_stats$DD_ptv_P_sd,
+                                              DD_miss_P = gene_stats$DD_miss_P_sd)
+
+write.table(rbind(SZ_PTV_enrichment$results_table %>%
+                    mutate(SZ_DNV_enrich = "SZ PTVs"),
+                  SZ_miss_enrichment$results_table %>%
+                    mutate(SZ_DNV_enrich = "SZ missense")),
+            file = "./../output/Genic_pleiotropy_Poisson_analysis_results_SM_Table_S1.tsv",
+            quote = F,
+            sep = "\t",
+            row.names = F)
+```
+
+```{r}
+## Poisson regression with covariates (Table S2)
+SZ_PTV_enrichment_covar <- run_poisson_regressions_covar(obs_in = gene_stats$SZ_PTV_obs,
+                                                   exp_in = gene_stats$SZ_PTV_exp,
+                                                   DD_PTV_P = gene_stats$DD_ptv_P_sd,
+                                                   DD_miss_P = gene_stats$DD_miss_P_sd,
+                                                   brain_in = gene_stats$meanExprs,
+                                                   constraint_in = gene_stats$oe_lof)
+
+SZ_miss_enrichment_covar <- run_poisson_regressions_covar(obs_in = gene_stats$SZ_miss_obs,
+                                                    exp_in = gene_stats$SZ_miss_exp,
+                                                    DD_PTV_P = gene_stats$DD_ptv_P_sd,
+                                                    DD_miss_P = gene_stats$DD_miss_P_sd,
+                                                   brain_in = gene_stats$meanExprs,
+                                                   constraint_in = gene_stats$oe_mis)
+
+write.table(rbind(SZ_PTV_enrichment_covar$results_table %>%
+                    mutate(SZ_DNV_enrich = "SZ PTVs"),
+                  SZ_miss_enrichment_covar$results_table %>%
+                    mutate(SZ_DNV_enrich = "SZ missense")),
+            file = "./../output/Genic_pleiotropy_Poisson_analysis_results_covariates_SM_Table_S2.tsv",
+            quote = F,
+            sep = "\t",
+            row.names = F)
+
+```

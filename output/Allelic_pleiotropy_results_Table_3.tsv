@@ -1,0 +1,5 @@
+Gene_set	Class	N_dnvs_tested	N_observed	N_expected	P	RR	RR_lower	RR_upper
+Variant_set_primary	miss	3745	6	0.7603	0.0001404	7.892	2.896	17.18
+Variant_set_primary	LoF	2118	3	0.4432	0.01045	6.768	1.396	19.78
+Variant_set_primary	all	5863	9	1.204	4.973e-06	7.478	3.419	14.2
+Variant_set_comparator	all	40909	8	9.868	0.7483	0.8107	0.35	1.597

@@ -1,0 +1,88 @@
+---
+title: "Genic pleiotropy main analysis"
+---
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+source("./denovo_geneset_functions.R")
+
+if("dplyr" %in% (.packages())){
+          detach("package:dplyr", unload=FALSE) 
+          detach("package:plyr", unload=FALSE)
+} 
+
+list.of.packages <- c("data.table", "ggplot2","ggsignif","plyr","dplyr","purrr")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+lapply(list.of.packages, require, character.only = TRUE)
+
+## load pre-computed de novo data ##
+new_denovos <- readRDS("./../data/new_trios_dnv_data_dis.Rdata")
+published_denovos <- readRDS("./../data/published_trios_dnv_data_dis.Rdata")
+
+```
+
+```{r}
+## read in gene enrichment statistics from the 2020 Deciphering Developmental Disorders study (Kaplanis et al 2020)
+DDD_new <- read.table("./../data/media-3_significant_genes_V3_Entrez.txt",
+                      header=T,sep="\t",
+                      na.strings = c(".","NA"),
+                      stringsAsFactors = F) %>% 
+  dplyr::rename("ENTREZ" = Entrez) 
+
+## Set P value threshold for exome-wide significance
+P_thresh <- 0.0000025
+
+## extract NDD genes enriched for PTVs
+DDD_LoF <- DDD_new %>% 
+  filter(PTV_enrichment_p < P_thresh) %>% 
+  mutate(Gene_set = "DDD_LoF") %>% 
+  select(Gene_set,ENTREZ)
+
+## extract NDD genes enriched for missense variants
+DDD_miss <- DDD_new %>% 
+  filter(enrich_mis_p_full < P_thresh | enrich_mis_p_ud < P_thresh) %>% 
+  mutate(Gene_set = "DDD_miss") %>% 
+  select(Gene_set,ENTREZ)
+
+## extract NDD genes enriched for both PTVs and missense variants
+both_LoF_miss <- DDD_LoF %>% 
+  filter(ENTREZ %in% DDD_miss$ENTREZ) %>% 
+  mutate(Gene_set = "NDD_PTV_and_missense_enriched")
+
+## extract NDD genes only enriched for PTVs
+DD_LOF_only <- DDD_LoF %>% 
+  filter(!ENTREZ %in% DDD_miss$ENTREZ) %>% 
+  mutate(Gene_set = "NDD_LoF_enriched")
+
+## extract NDD genes enriched only for missense variants
+DD_miss_only <- DDD_miss %>% 
+  filter(!ENTREZ %in% DDD_LoF$ENTREZ) %>% 
+  mutate(Gene_set = "NDD_misssense_enriched")
+```
+
+```{r}
+## perform schizophrenia gene-set analysis of NDD gene sets ##
+NDD_results  <-
+  competitive_geneset_analysis(
+  new_denovos_in = new_denovos,
+  published_denovos_in = published_denovos,
+  genesets_in = rbind(both_LoF_miss,
+                      DD_LOF_only,
+                      DD_miss_only),
+  new_denovos_mut_in = new_denovos$mutRates,
+  published_denovos_mut_in = published_denovos$mutRates,
+  output_style = "manuscript"
+  )
+
+NDD_results <- NDD_results %>%
+  select(Gene_set,Genes_tested,Remaining_genes_tested,
+         LoF_obs,LoF_exp,LoF_obs_remaining,LoF_exp_remaining,LoF_P,LoF_RR,
+         MPC2_obs,MPC2_exp,MPC2_obs_remaining,MPC2_exp_remaining,MPC2_P,MPC2_RR)
+
+
+write.table(NDD_results,file = "./../output/Genic_pleiotropy_results_Table_1.tsv",row.names = F,quote = F,sep = "\t")
+
+```
+

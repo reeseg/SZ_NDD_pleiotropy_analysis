@@ -1,0 +1,4 @@
+Gene_set	Genes_tested	Remaining_genes_tested	LoF_obs	LoF_exp	LoF_obs_remaining	LoF_exp_remaining	LoF_P	LoF_RR	MPC2_obs	MPC2_exp	MPC2_obs_remaining	MPC2_exp_remaining	MPC2_P	MPC2_RR
+NDD_LoF_enriched	127	18979	20	3.41	344	287	2.14e-08	4.89 (2.95, 7.67)	6	4.57	141	142	0.47	1.32 (0.477, 2.95)
+NDD_misssense_enriched	103	19003	4	2.94	360	287	0.79	1.09 (0.294, 2.8)	14	7.85	133	139	0.0402	1.86 (0.99, 3.23)
+NDD_PTV_and_missense_enriched	53	19053	7	1.64	357	289	0.00509	3.45 (1.38, 7.19)	9	3.77	138	143	0.0143	2.47 (1.11, 4.83)

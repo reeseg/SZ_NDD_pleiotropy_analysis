@@ -1,0 +1,232 @@
+---
+title: "Allelic pleiotropy main analysis"
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(kableExtra)
+library(ggplot2)
+```
+
+```{r echo=FALSE, warning=FALSE}
+## Read in SZ data and gnomAD pLi score ####
+
+## load pre-computed de novo data ##
+new_denovos <- readRDS("./../data/new_trios_dnv_data_dis.Rdata")
+published_denovos <- readRDS("./../data/published_trios_dnv_data_dis.Rdata")
+
+new_dnvs <- new_denovos$denovos
+published_dnvs <- published_denovos$denovos
+
+## Combine Rees et al 2020 and previously published SZ DNV datasets
+all_SZ <- rbind(new_dnvs %>% 
+                  select(Chr,Position,Ref,Alt,Annotation),
+                published_dnvs %>% 
+                  select(Chr,Position,Ref,Alt,Annotation) 
+                  ) %>%
+  mutate(VarID2 = paste(Chr,Position,Ref,Alt,sep = ':'))
+
+## filter non-SNV mutations
+all_SZ <- all_SZ %>% 
+  filter(Annotation %in% c("Missense_SNV","Splice_SNV","Synonymous_SNV","stop_gained")) %>%
+  filter(Ref %in% c("A","T","G","C") & Alt %in% c("A","T","G","C")) 
+
+## Load gnomad pLi data
+pLi <- read.table("./../data/gnomad.v2.1.1.lof_metrics.by_gene_HGNC.tsv",
+                  header=T,sep = "\t",
+                  stringsAsFactors = F,
+                  na.strings = c(NA,".")) %>% 
+  filter(pLI >= 0.9) ## Gnomad pli 
+```
+
+```{r}
+## Read in NDD alleles (SM table 13) ##
+
+all_neuro <- read.table("./../data/Supplementary_table_13.txt",header=T,sep = "\t",stringsAsFactors = F) %>%
+  mutate(VarID2 = paste(Chromosome,Position,Reference.allele,Alternative.allele,sep = ':'))
+
+mutation_rate_list <- list(all_neuro = all_neuro)
+```
+
+```{r}
+## Extract schizophrenia de novo variants overlapping NDD variant sets ####
+
+all_overlapping_dnvs <- all_SZ %>% 
+  filter(VarID2 %in% mutation_rate_list$all_neuro$VarID2) %>%
+  mutate(Variant_set = if_else(VarID2 %in% (mutation_rate_list$all_neuro %>% 
+                                              filter(Variant_set == 1) %>% 
+                                              pull(VarID2)),1,0))
+```
+
+
+```{r}
+## generate lists to be used in lapply loops ##
+
+mut.class.filters <- list(NS = quo(Annotation %in% c("missense_variant","splice_acceptor_variant","splice_donor_variant","stop_gained","Missense_SNV")),
+                          miss = quo(Annotation  %in% c("missense_variant","Missense_SNV")),
+                          LoF = quo(Annotation %in% c("splice_acceptor_variant","splice_donor_variant","stop_gained")),
+                          Syn = quo(Annotation %in% c("synonymous_variant","Synonymous_SNV")),
+                          all = quo(Annotation %in% c("missense_variant","splice_acceptor_variant","splice_donor_variant","stop_gained","Missense_SNV","synonymous_variant","Synonymous_SNV"))
+                          )
+
+variant.filters <- list(Variant_set_primary = quo(Variant_set == 1),
+                         Variant_set_comparator = quo(Variant_set == 0)
+                         )
+
+mut.class.list <- list(#NS = "NS",
+                       miss = "miss",
+                       LoF = "LoF",
+                   #    Syn = "Syn",
+                       all = "all")
+
+variant.set.list <- list(Variant_set_primary = "Variant_set_primary",
+                      Variant_set_comparator = "Variant_set_comparator"
+                      )
+```
+
+```{r}
+## set number of X chromosomes and autosomes tested in schizophrenia
+N_X_chrs <- (new_denovos$N_trios$female_probands * 2) + 
+  (published_denovos$N_trios$female_probands * 2) + 
+  new_denovos$N_trios$male_probands + 
+  published_denovos$N_trios$male_probands
+
+N_autosome <- 3444 * 2
+```
+
+```{r}
+
+## Estimate expected number of de novo variants overlapping NDD alleles in SZ trios
+
+variant_class_expected_counts <- lapply(mut.class.filters, function(class){
+  
+  dnvs <- mutation_rate_list$all_neuro
+  
+    lapply(variant.filters, function(set){
+    
+      autosomse_exp <- ifelse(test = nrow(dnvs %>% filter(Chromosome != 'X' & !!class & !!set)) != 0,
+                           yes = (sum(dnvs %>% filter(Chromosome != 'X' & !!class & !!set) %>% select(Mutation_rate),na.rm = T) * N_autosome),
+                           no = 0)
+
+      xchrom_exp <- ifelse(test = nrow(dnvs %>% filter(Chromosome == 'X' & !!class & !!set)) != 0,
+                            yes = (sum(dnvs %>% filter(Chromosome == 'X' & !!class & !!set) %>% select(Mutation_rate),na.rm = T) * N_X_chrs),
+                            no = 0)
+
+      return(autosomse_exp + xchrom_exp)
+      })
+  })
+
+
+## Count observed number of de novo variants overlapping NDD alleles in SZ trios 
+
+variant_class_observed_counts <- lapply(mut.class.filters, function(class){
+    
+  dnvs <- mutation_rate_list$all_neuro
+  
+    lapply(variant.filters, function(set){
+      
+      all_overlapping_dnvs %>% filter((VarID2 %in% dnvs$VarID2) & !!class & !!set) %>% distinct(Chr, Position,Ref,Alt,.keep_all = TRUE)
+    
+      })
+  })
+
+
+## NDD allele enrichment tests ##
+
+variant.class.enrichment.tests <- lapply(mut.class.list, function(class){
+    
+    lapply(variant.set.list, function(set){
+      
+      poisson.test(nrow(variant_class_observed_counts[[class]][[set]]),
+                   variant_class_expected_counts[[class]][[set]])
+    })
+    
+  })
+
+
+```
+
+```{r}
+## Create results tables for each mutation class and NDD variant set ##
+
+## Generate counts for number of NDD alleles tested
+variant_class_dnvs_tested <- lapply(mut.class.filters, function(class){
+  dnvs <- mutation_rate_list$all_neuro
+  
+  lapply(variant.filters, function(x){
+    nrow(dnvs %>% filter(!!x & !!class))
+    })
+  })
+
+## loop through phenotypes
+
+  ## loop through mutation classes
+  variant.class.enrichment.table  <- lapply(mut.class.list, function(class){ 
+                              
+                            ## loop through gene sets
+                            temp_set_results <- lapply(variant.set.list, function(x){
+                
+                                                  temp_results <- variant.class.enrichment.tests[[class]][[x]]
+                                                  
+                                                  if (is.na(temp_results$estimate)) {
+                                                    data.frame(Gene_set = x,
+                                                             Class = class,
+                                                             N_dnvs_tested = NaN,
+                                                             N_observed = NaN,
+                                                             N_expected = NaN,
+                                                             P = NaN,
+                                                             RR = NaN,
+                                                             RR_lower = NaN,
+                                                             RR_upper = NaN)
+                                                  }
+                                                  else {
+                                                    data.frame(Gene_set = x,
+                                                               Class = class,
+                                                               N_dnvs_tested = variant_class_dnvs_tested[[class]][[x]],
+                                                               N_observed = temp_results$statistic[[1]],
+                                                               N_expected = temp_results$parameter[[1]],
+                                                               P = temp_results$p.value,
+                                                               RR = temp_results$estimate,
+                                                               RR_lower = temp_results$conf.int[1],
+                                                               RR_upper = temp_results$conf.int[2])
+                                                  }
+                                                  })
+                             ###
+                    temp_all_sets <- do.call(rbind,temp_set_results)
+                    temp_all_sets[,5:9] <- signif(temp_all_sets[,5:9],4)
+                    temp_all_sets
+                    })
+  
+  variant.class.enrichment.table <- do.call(rbind,variant.class.enrichment.table)
+  variant.class.enrichment.table <- variant.class.enrichment.table %>% 
+    filter(!(Gene_set == "Variant_set_comparator" & Class != "all"))
+
+```
+
+```{r}
+## Write results tables ####
+
+write.table(variant.class.enrichment.table,
+            file = "./../output/Allelic_pleiotropy_results_Table_3.tsv",
+            row.names = F,sep = "\t",quote = F)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
