@@ -108,7 +108,7 @@ competitive_geneset_analysis <- function(new_denovos_in,
     
     output_file <- combined_setResult %>%
       select(c(1:3, contains("All_Trio"))) %>% 
-      mutate_at(vars(contains('All_Trio')), .fun = list(~signif(., 3))) %>%
+      mutate_at(vars(contains(c('_RR','_P'))), .fun = list(~signif(., 3))) %>%
       rename_at(vars(contains('All_Trio')),list(~sub("All_Trio_",'',.)))
     
     return(output_file)
@@ -118,7 +118,7 @@ competitive_geneset_analysis <- function(new_denovos_in,
   else if (output_style == "manuscript") {
     output_file <- combined_setResult %>%
       select(c(1:3, contains("All_Trio"))) %>% 
-      mutate_at(vars(contains('All_Trio')), .fun = list(~signif(., 3))) %>%
+      mutate_at(vars(contains(c('_RR','_P'))), .fun = list(~signif(., 3))) %>%
       rename_at(vars(contains('All_Trio')),list(~sub("All_Trio_",'',.)))
     
     for (i in classes_to_test) {
